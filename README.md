@@ -83,3 +83,60 @@ python main_train.py
 ```
 
 This will save a new model checkpoint `checkpoint_art` under `transformer/saved_files/checkpoints/`.
+
+## Physics-Informed Speculative Draft ART Extension
+
+This fork adds a minimally invasive research extension for a **Physics-Informed Speculative Draft Model** for ART rendezvous warm starts.  The original ART model definition, repository dataset conventions, orbital dynamics, and SCP modules are left intact; the new entry point is `main.py` and new implementation files are under `transformer/` and `utils/`.
+
+### Draft ART training and evaluation
+
+The draft model predicts a multi-step RTN impulsive-control chunk
+`draft_control_dv: float32[B, K, 3]` in normalized delta-v units.  It uses the repository ART data representation when dataset files are present under `dataset/`; if those external artifacts are absent, `main.py` uses a deterministic synthetic RTN fallback so CLI smoke tests, plots, metrics, and checkpoints remain reproducible on CPU.
+
+Example full run:
+
+```bash
+python main.py \
+  --mode train_and_eval \
+  --seed 42 \
+  --device cpu \
+  --draft-chunk-length 8 \
+  --batch-size 128 \
+  --epochs 1 \
+  --learning-rate 1e-4 \
+  --use-distillation \
+  --use-physics-loss \
+  --use-acceptance-loss \
+  --use-speculative-inference \
+  --full-art-checkpoint transformer/saved_files/checkpoints/checkpoint_rtn_art \
+  --output-dir results/pisd_art \
+  --num-eval-samples 5 \
+  --plot
+```
+
+Required modes:
+
+```bash
+python main.py --mode train_draft --epochs 1 --output-dir results/pisd_art
+python main.py --mode eval --draft-checkpoint results/pisd_art/full/draft_art.pt --output-dir results/pisd_art --plot
+python main.py --mode train_and_eval --loss-variant full --use-speculative-inference --plot
+```
+
+Ablations:
+
+```bash
+python main.py --mode train_and_eval --loss-variant imitation
+python main.py --mode train_and_eval --loss-variant imitation_distillation
+python main.py --mode train_and_eval --loss-variant imitation_physics
+python main.py --mode train_and_eval --loss-variant imitation_distillation_physics
+python main.py --mode train_and_eval --loss-variant full
+```
+
+Outputs are saved under `{output_dir}/{loss_variant}/`:
+
+* `draft_art.pt`: draft checkpoint.
+* `metrics.json` and `metrics.csv`: runtime, fuel, terminal error, KOZ, and speculative acceptance metrics.
+* `run_metadata.json`: seed, Python/NumPy/Torch versions, CUDA/device information, repository commit hash, dataset source, split rule, parameter count, and checkpoint paths.
+* `plots/runtime_comparison.png` plus fuel, terminal-error, prefix-histogram, and example-trajectory plots when `--plot` is passed.
+
+The speculative method is a continuous-control draft-and-verify algorithm inspired by speculative decoding. It does **not** guarantee safety or exact full-ART distribution preservation; hard-constraint satisfaction must be evaluated and, when required, enforced by downstream SCP.
